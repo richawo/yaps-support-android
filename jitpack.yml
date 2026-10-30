@@ -1,0 +1,5 @@
+# JitPack builds this repo's tags into com.github.richawo:yaps-support-android:<tag>.
+jdk:
+  - openjdk21
+install:
+  - ./gradlew :yaps-support:publishReleasePublicationToMavenLocal

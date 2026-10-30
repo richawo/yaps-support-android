@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Declared so the host can ask for it via YapsSupport.requestNotificationPermission(activity).
+         The SDK never requests it on its own. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- The camera button launches the system camera app; no CAMERA permission is needed. -->
+    <queries>
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="market" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
+    <application>
+        <activity
+            android:name="ai.yaps.support.SupportActivity"
+            android:exported="false"
+            android:enableOnBackInvokedCallback="true"
+            android:launchMode="singleTop"
+            android:theme="@style/YapsSupport.Theme"
+            android:windowSoftInputMode="adjustResize" />
+
+        <provider
+            android:name="ai.yaps.support.internal.media.SupportFileProvider"
+            android:authorities="${applicationId}.yapssupport.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/yaps_support_file_paths" />
+        </provider>
+    </application>
+</manifest>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Camera captures land here before they are downscaled into the outbox. -->
+    <cache-path name="yaps_support_camera" path="yaps-support/camera/" />
+</paths>
