@@ -66,4 +66,7 @@
     <string name="yaps_support_code_expired">Süresi doldu</string>
     <string name="yaps_support_code_expires">%1$s tarihine kadar geçerli</string>
     <string name="yaps_support_code_spoken">Kod %1$s</string>
+    <string name="yaps_support_card_rating">Puan</string>
+    <string name="yaps_support_rating_thanks">Puanınız için teşekkürler!</string>
+    <string name="yaps_support_rating_stars">5 üzerinden %1$d</string>
 </resources>

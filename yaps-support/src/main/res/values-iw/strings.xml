@@ -66,4 +66,7 @@
     <string name="yaps_support_code_expired">פג תוקף</string>
     <string name="yaps_support_code_expires">בתוקף עד %1$s</string>
     <string name="yaps_support_code_spoken">קוד %1$s</string>
+    <string name="yaps_support_card_rating">דירוג</string>
+    <string name="yaps_support_rating_thanks">תודה על הדירוג!</string>
+    <string name="yaps_support_rating_stars">%1$d מתוך 5</string>
 </resources>

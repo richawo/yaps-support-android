@@ -66,4 +66,7 @@
     <string name="yaps_support_code_expired">समय-सीमा खत्म</string>
     <string name="yaps_support_code_expires">%1$s तक मान्य</string>
     <string name="yaps_support_code_spoken">कोड %1$s</string>
+    <string name="yaps_support_card_rating">रेटिंग</string>
+    <string name="yaps_support_rating_thanks">रेटिंग देने के लिए धन्यवाद!</string>
+    <string name="yaps_support_rating_stars">5 में से %1$d</string>
 </resources>

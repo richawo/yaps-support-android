@@ -4,18 +4,23 @@ import ai.yaps.support.internal.core.CardActions
 import ai.yaps.support.internal.core.EngineHost
 import ai.yaps.support.internal.core.Limits
 import ai.yaps.support.internal.core.Log
+import ai.yaps.support.internal.core.PaywallRules
 import ai.yaps.support.internal.core.PushRecognizer
+import ai.yaps.support.internal.core.ReviewLink
 import ai.yaps.support.internal.core.SupportEngine
 import ai.yaps.support.internal.protocol.IdentityInput
 import ai.yaps.support.internal.protocol.PaywallProductWire
 import ai.yaps.support.internal.protocol.PaywallWire
+import ai.yaps.support.internal.protocol.ScreenWire
 import ai.yaps.support.internal.push.SupportNotifications
 import ai.yaps.support.internal.store.LocalStore
 import android.Manifest
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -53,7 +58,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  * ```
  *
  * Every method is safe to call before [configure]; calls made earlier are applied once it runs
- * where that makes sense (identity, metadata, push token, paywalls), and ignored otherwise.
+ * where that makes sense (identity, metadata, push token, paywalls, screens), and ignored otherwise.
  */
 public object YapsSupport {
 
@@ -123,11 +128,13 @@ public object YapsSupport {
      */
     @JvmStatic
     public fun identify(userId: String, name: String?, email: String?) {
+        val id = userId.take(Limits.USER_ID)
         val input = IdentityInput(
-            userId = userId.take(Limits.USER_ID),
+            userId = id,
             name = name?.take(Limits.NAME),
             email = email?.take(Limits.EMAIL),
-            token = labels?.token,
+            // A token identified someone else: it doesn't carry over to a different user.
+            token = labels?.token?.takeIf { labels?.userId == null || labels?.userId == id },
         )
         labels = input
         applyIdentity(input)
@@ -136,7 +143,7 @@ public object YapsSupport {
     /**
      * Verifies the user with an HS256 JWT minted by **your server** with the app's identity secret
      * (`ids_…`). Claims: `user_id` and `exp` (required), optional `name`, `email`, `nbf`. The token is
-     * held in memory only. A verified user shares one conversation across devices and apps.
+     * held in memory only. A verified user shares one conversation across their devices in this app.
      * If the server rejects it you get [SupportEvent.IdentityRejected] and chat continues unverified.
      */
     @JvmStatic
@@ -159,7 +166,6 @@ public object YapsSupport {
     @JvmStatic
     public fun setMetadata(metadata: Map<String, String>) {
         val clean = Limits.sanitizeMetadata(metadata)
-        if (clean.size != metadata.size) Log.w("setMetadata: dropped invalid keys or entries beyond 30")
         val e = engine
         if (e == null) pendingMetadata = clean else e.setMetadata(clean)
     }
@@ -247,6 +253,19 @@ public object YapsSupport {
             engine?.onLanguageChanged()
         }
 
+    /**
+     * Whether support notifications carry the unread count (`setNumber`, which launchers show as the
+     * icon badge) and the server puts `badge` in this device's pushes. Default `true`. Set `false` if
+     * your app owns the badge; [unreadCount] keeps working either way.
+     */
+    @JvmStatic
+    public var updatesAppBadge: Boolean = true
+        set(value) {
+            if (field == value) return
+            field = value
+            engine?.badgePreferenceChanged()
+        }
+
     /** Small icon for support notifications. Should be a monochrome vector; defaults to a chat bubble. */
     @JvmStatic
     @DrawableRes
@@ -297,7 +316,8 @@ public object YapsSupport {
 
     /**
      * Optional check run before reporting paywalls: return `false` to hide one (for example the user
-     * already owns it). Unavailable paywalls render as "No longer available" on existing cards.
+     * already owns it). Unavailable paywalls render as "No longer available" on existing cards. A
+     * check that throws counts as unavailable.
      */
     @JvmStatic
     public var paywallAvailability: (suspend (paywallId: String) -> Boolean)? = null
@@ -307,6 +327,30 @@ public object YapsSupport {
     public fun refreshPaywalls() {
         engine?.refreshPaywalls()
     }
+
+    // ------------------------------------------------------------------ screens
+
+    /**
+     * Screens in your app that agents can send as link cards ("Edit profile", "Restore purchases").
+     * Reported to the server (max 50) whenever you set this. Invalid IDs (1–64 characters
+     * `[A-Za-z0-9_.-]`) and repeats are dropped, and titles are cut to 60 characters.
+     */
+    @JvmStatic
+    public var screens: List<SupportScreen> = emptyList()
+        set(value) {
+            val clean = Limits.sanitizeScreens(value)
+            if (clean.size != value.size) Log.w("screens: dropped invalid or repeated screens, or entries beyond ${Limits.SCREENS}")
+            field = clean
+            engine?.refreshScreens()
+        }
+
+    /**
+     * Called on the main thread when the user taps a link card for one of your [screens], after the
+     * chat closes (if the SDK presented it). Navigate to the screen with the given ID. Without it,
+     * screen link cards show "No longer available".
+     */
+    @JvmStatic
+    public var onScreen: ((screenId: String) -> Unit)? = null
 
     // ------------------------------------------------------------------ automations
 
@@ -319,6 +363,44 @@ public object YapsSupport {
     @JvmOverloads
     public fun track(name: String, opensChat: Boolean = false) {
         engine?.track(name, opensChat) ?: Log.w("track() before configure(); ignored")
+    }
+
+    // ------------------------------------------------------------------ review prompt
+
+    /** The in-app review prompt that's due for this customer, or `null`. Ask at a calm moment. */
+    @JvmStatic
+    public suspend fun reviewPrompt(): ReviewPrompt? = engine?.reviewPrompt()
+
+    /**
+     * Call right before you show the prompt. Returns `false` when another of the customer's
+     * devices already showed this milestone, so they see it once.
+     */
+    @JvmStatic
+    public suspend fun claimReviewPrompt(prompt: ReviewPrompt): Boolean = engine?.reviewPromptAction("shown", prompt.milestone) ?: false
+
+    /**
+     * Opens the prompt's review page (the Play Store app, else the web listing) and records the tap.
+     * To use Google Play's in-app review flow instead, launch it yourself and call [answerReviewPrompt].
+     */
+    @JvmStatic
+    public suspend fun openReviewPrompt(context: Context, prompt: ReviewPrompt) {
+        val e = engine ?: return
+        val opened = ReviewLink.candidates(prompt.url, context.packageName).any { url ->
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                true
+            } catch (_: ActivityNotFoundException) {
+                false
+            }
+        }
+        if (!opened) Log.w("No app can open the review link")
+        e.reviewPromptAction("opened", prompt.milestone)
+    }
+
+    /** Records the customer's answer to the prompt. */
+    @JvmStatic
+    public suspend fun answerReviewPrompt(prompt: ReviewPrompt, answer: ReviewPromptAnswer) {
+        engine?.reviewPromptAction(answer.wire, prompt.milestone)
     }
 
     // ------------------------------------------------------------------ push
@@ -358,7 +440,10 @@ public object YapsSupport {
         val show = e?.onSupportPush(data) ?: true
         if (show) {
             main.post {
-                SupportNotifications.show(app, data, notificationIcon, ContextCompat.getColor(app, R.color.yaps_support_notification_accent))
+                SupportNotifications.show(
+                    app, data, notificationIcon, ContextCompat.getColor(app, R.color.yaps_support_notification_accent),
+                    showsCount = updatesAppBadge,
+                )
             }
         }
         return true
@@ -407,12 +492,20 @@ public object YapsSupport {
         engine?.recordCardAction(messageId)
     }
 
+    /** Screen link cards: close the chat (as [closeChat] does), then hand the screen to [onScreen]. */
+    internal fun openScreen(screenId: String): Boolean {
+        val handler = onScreen ?: return false
+        closeChat()
+        main.post { handler(screenId) }
+        return true
+    }
+
     internal fun reviewOpened(messageId: String) {
         emit(SupportEvent.ReviewOpened(messageId))
         engine?.recordCardAction(messageId)
     }
 
-    /** App promo and code card taps: events on [events], receipts through the engine. */
+    /** App promo, code and link card taps: events on [events], receipts through the engine. */
     internal val cardActions: CardActions = CardActions(
         emit = { emit(it) },
         receipt = { messageId, action -> engine?.recordCardAction(messageId, action) },
@@ -422,11 +515,10 @@ public object YapsSupport {
         override fun emit(event: SupportEvent) = this@YapsSupport.emit(event)
         override val languageOverride: String? get() = this@YapsSupport.languageOverride
         override val usesRemoteAppearance: Boolean get() = this@YapsSupport.usesRemoteAppearance
+        override val updatesAppBadge: Boolean get() = this@YapsSupport.updatesAppBadge
         override fun openChat(context: Context) = this@YapsSupport.openChat(context)
         override suspend fun availablePaywalls(): List<PaywallWire> {
-            val check = paywallAvailability
-            return paywalls
-                .filter { p -> check == null || runCatching { check(p.id) }.getOrDefault(true) }
+            return PaywallRules.available(paywalls, { it.id }, paywallAvailability)
                 .map { p ->
                     PaywallWire(
                         id = p.id,
@@ -435,6 +527,7 @@ public object YapsSupport {
                     )
                 }
         }
+        override fun screens(): List<ScreenWire> = this@YapsSupport.screens.map { ScreenWire(it.id, it.title) }
     }
 }
 

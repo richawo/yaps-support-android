@@ -66,4 +66,7 @@
     <string name="yaps_support_code_expired">Đã hết hạn</string>
     <string name="yaps_support_code_expires">Có hiệu lực đến %1$s</string>
     <string name="yaps_support_code_spoken">Mã %1$s</string>
+    <string name="yaps_support_card_rating">Đánh giá</string>
+    <string name="yaps_support_rating_thanks">Cảm ơn bạn đã đánh giá!</string>
+    <string name="yaps_support_rating_stars">%1$d/5</string>
 </resources>

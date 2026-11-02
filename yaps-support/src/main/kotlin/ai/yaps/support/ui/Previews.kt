@@ -80,7 +80,36 @@ internal object PreviewData {
         ),
     )
 
-    val config = SdkConfig(appId = "app_123", appName = "Clucky", teamDisplay = TeamDisplay(showNames = true, showPhotos = false))
+    /** Link cards for each target; `edit_profile` is a registered screen, `restore_purchases` is not. */
+    val linkMessages = listOf(
+        Message(
+            "msg_20", "cnv_1", 20, null, frederick, "card", "Our guide walks through why an alarm might stay silent.",
+            card = Card(type = "link", buttonLabel = "Read the guide", linkId = "lnk_1", target = "url", url = "https://wakely.app/guide/silent-alarms"),
+            createdAt = "${DAY}09:50:00.000Z",
+        ),
+        Message(
+            "msg_21", "cnv_1", 21, null, frederick, "card", "Turn on notifications for Wakely here.",
+            card = Card(type = "link", buttonLabel = "Open settings", linkId = "lnk_2", target = "app_settings"),
+            createdAt = "${DAY}09:51:00.000Z",
+        ),
+        Message(
+            "msg_22", "cnv_1", 22, null, frederick, "card", "You can change your email from your profile.",
+            card = Card(type = "link", buttonLabel = "Edit profile", linkId = "lnk_3", target = "screen", screenId = "edit_profile"),
+            createdAt = "${DAY}09:52:00.000Z",
+        ),
+        Message(
+            "msg_23", "cnv_1", 23, null, frederick, "card", "Or email us and we'll sort it out.",
+            card = Card(type = "link", buttonLabel = "Email support", target = "url", url = "mailto:help@wakely.app"),
+            createdAt = "${DAY}09:53:00.000Z",
+        ),
+        Message(
+            "msg_24", "cnv_1", 24, null, frederick, "card", "Restoring should bring your plan back.",
+            card = Card(type = "link", buttonLabel = "Restore purchases", target = "screen", screenId = "restore_purchases"),
+            createdAt = "${DAY}09:54:00.000Z",
+        ),
+    )
+
+    val config = SdkConfig(appId = "app_123", appName = "Wakely", teamDisplay = TeamDisplay(showNames = true, showPhotos = false))
 
     val state = ChatState(messages = messages, loaded = true, agentReadSeq = 7, config = config, agentTyping = true, agentTypingName = "Frederick")
 
@@ -103,10 +132,11 @@ private fun PreviewChat(
             state = state,
             appearance = resolved,
             env = BubbleEnv(
-                customerLanguage = "en", showNames = true, showPhotos = false, appName = "Clucky",
+                customerLanguage = "en", showNames = true, showPhotos = false, appName = "Wakely",
                 availablePaywalls = setOf("yearly_offer"), hasPaywallHandler = true, imageLoader = null,
                 onReview = {}, onOffer = {}, onOpenImage = { _, _ -> }, onOpenFile = {}, onRetry = {}, onDiscard = {},
                 paywall = { id -> if (id == "yearly_offer") PreviewData.paywall else null },
+                screenIds = setOf("edit_profile"), hasScreenHandler = true,
             ),
             draft = "",
             staged = emptyList(),
@@ -159,6 +189,14 @@ private fun PromoCardsDarkPreview() = PreviewChat(ChatState(messages = PreviewDa
 @Preview(name = "Promo cards · RTL · large font", showBackground = true, widthDp = 380, heightDp = 1800, locale = "ar", fontScale = 1.5f)
 @Composable
 private fun PromoCardsRtlPreview() = PreviewChat(ChatState(messages = PreviewData.promoMessages, loaded = true, config = PreviewData.config), dark = false)
+
+@Preview(name = "Link cards · light", showBackground = true, widthDp = 380, heightDp = 1000)
+@Composable
+private fun LinkCardsLightPreview() = PreviewChat(ChatState(messages = PreviewData.linkMessages, loaded = true, config = PreviewData.config), dark = false)
+
+@Preview(name = "Link cards · dark", showBackground = true, widthDp = 380, heightDp = 1000, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun LinkCardsDarkPreview() = PreviewChat(ChatState(messages = PreviewData.linkMessages, loaded = true, config = PreviewData.config), dark = true)
 
 @Preview(name = "RTL · large font", showBackground = true, widthDp = 380, heightDp = 800, locale = "ar", fontScale = 1.5f)
 @Composable

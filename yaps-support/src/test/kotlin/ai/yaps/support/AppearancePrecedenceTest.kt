@@ -30,7 +30,7 @@ class AppearancePrecedenceTest {
         assertEquals(0xFFFF7A45.toInt(), r.light.accent)
         assertEquals(0xFFFF8A5B.toInt(), r.dark.accent)
         assertEquals(0xFFFFFFFF.toInt(), r.light.background)
-        assertEquals("Clucky support", r.title)
+        assertEquals("Wakely support", r.title)
         assertEquals("We usually reply within a few hours.", r.welcomeText)
         assertEquals(SupportFontStyle.ROUNDED, r.fontStyle)
         assertEquals(SupportCornerStyle.ROUND, r.cornerStyle)
@@ -65,9 +65,9 @@ class AppearancePrecedenceTest {
 
     @Test
     fun localizedTextUsesTheCustomerLanguageThenEnglish() {
-        assertEquals("Soporte de Clucky", AppearanceResolver.resolve(remote, local, "es").title)
-        assertEquals("Soporte de Clucky", AppearanceResolver.resolve(remote, local, "es-MX").title)
-        assertEquals("Clucky support", AppearanceResolver.resolve(remote, local, "de").title)
+        assertEquals("Soporte de Wakely", AppearanceResolver.resolve(remote, local, "es").title)
+        assertEquals("Soporte de Wakely", AppearanceResolver.resolve(remote, local, "es-MX").title)
+        assertEquals("Wakely support", AppearanceResolver.resolve(remote, local, "de").title)
         assertEquals("How can we help?", AppearanceResolver.resolve(remote, local, "de").welcomeTitle)
     }
 
@@ -99,7 +99,8 @@ class AppearancePrecedenceTest {
     fun hexParsing() {
         assertEquals(0xFFFF7A45.toInt(), AppearanceResolver.parseHex("#FF7A45"))
         assertEquals(0xFFFFAA00.toInt(), AppearanceResolver.parseHex("#FA0"))
-        assertEquals(0x80FF0000.toInt(), AppearanceResolver.parseHex("#80FF0000"))
+        assertEquals("#RRGGBBAA: alpha comes last", 0x80FF0000.toInt(), AppearanceResolver.parseHex("#FF000080"))
+        assertEquals(0x00FF7A45, AppearanceResolver.parseHex("#FF7A4500"))
         assertNull(AppearanceResolver.parseHex("#12345"))
         assertNull(AppearanceResolver.parseHex(null))
     }

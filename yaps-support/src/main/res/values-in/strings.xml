@@ -66,4 +66,7 @@
     <string name="yaps_support_code_expired">Kedaluwarsa</string>
     <string name="yaps_support_code_expires">Berlaku hingga %1$s</string>
     <string name="yaps_support_code_spoken">Kode %1$s</string>
+    <string name="yaps_support_card_rating">Penilaian</string>
+    <string name="yaps_support_rating_thanks">Terima kasih atas penilaian Anda!</string>
+    <string name="yaps_support_rating_stars">%1$d dari 5</string>
 </resources>

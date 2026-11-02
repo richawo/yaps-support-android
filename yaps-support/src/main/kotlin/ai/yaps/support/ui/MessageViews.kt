@@ -4,9 +4,11 @@ import ai.yaps.support.R
 import ai.yaps.support.SupportCornerStyle
 import ai.yaps.support.SupportPaywall
 import ai.yaps.support.internal.core.TranslationRule
+import ai.yaps.support.internal.core.isLinkAvailable
 import ai.yaps.support.internal.outbox.PendingAttachment
 import ai.yaps.support.internal.protocol.Attachment
 import ai.yaps.support.internal.protocol.AuthorType
+import ai.yaps.support.internal.protocol.LinkTarget
 import ai.yaps.support.internal.protocol.Message
 import android.text.format.DateFormat
 import android.text.format.DateUtils
@@ -38,8 +40,17 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -80,6 +91,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
@@ -110,6 +122,13 @@ internal class BubbleEnv(
     val onCopyCode: (Message) -> Boolean = { false },
     /** Code card Redeem. */
     val onRedeemCode: (Message) -> Unit = {},
+    /** IDs in `YapsSupport.screens` and whether `onScreen` is set, for screen link cards. */
+    val screenIds: Set<String> = emptySet(),
+    val hasScreenHandler: Boolean = false,
+    /** Link card button. */
+    val onLink: (Message) -> Unit = {},
+    /** Rating card star, 1–5. */
+    val onRate: (Message, Int) -> Unit = { _, _ -> },
 )
 
 internal data class ViewerImage(val url: String, val cacheKey: String?, val description: String?)
@@ -208,6 +227,8 @@ internal fun ServerMessageRow(item: TimelineItem.Server, env: BubbleEnv, faded: 
             CardPresentation.Offer -> OfferCard(m, env)
             CardPresentation.AppPromo -> AppPromoCard(m, env)
             CardPresentation.Code -> CodeCardView(m, env)
+            CardPresentation.Link -> LinkCard(m, env)
+            CardPresentation.Rating -> RatingCard(m, env)
             CardPresentation.PlainText, CardPresentation.None -> Unit
         }
     }
@@ -587,6 +608,7 @@ internal fun CardAction(
     modifier: Modifier = Modifier,
     outlined: Boolean = false,
     onClickLabel: String? = null,
+    topPadding: Dp = 14.dp,
     leading: (@Composable (ink: Color) -> Unit)? = null,
 ) {
     val colors = LocalSupportColors.current
@@ -606,7 +628,7 @@ internal fun CardAction(
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
-            .padding(top = 14.dp)
+            .padding(top = topPadding)
             .squish(interaction, 0.97f)
             .fillMaxWidth()
             .heightIn(min = Metrics.Control)
@@ -650,6 +672,72 @@ private fun OfferCard(m: Message, env: BubbleEnv) {
             enabled = available,
             onClick = { env.onOffer(m) },
         )
+    }
+}
+
+/**
+ * PROTOCOL §5 link card: the message text is drawn as a bubble above, so the card is just its button,
+ * with an icon for where it goes. Unavailable links keep the button, disabled, with the offer card's
+ * "No longer available".
+ */
+@Composable
+private fun LinkCard(m: Message, env: BubbleEnv) {
+    val card = m.card ?: return
+    val available = isLinkAvailable(card, env.screenIds, env.hasScreenHandler)
+    val icon = when (card.target) {
+        LinkTarget.APP_SETTINGS -> Icons.Filled.Settings
+        LinkTarget.SCREEN -> Icons.AutoMirrored.Filled.KeyboardArrowRight
+        else -> when (card.url?.trim()?.substringBefore(':')?.lowercase()) {
+            "mailto" -> Icons.Filled.Email
+            "tel" -> Icons.Filled.Call
+            "sms" -> Icons.AutoMirrored.Filled.Send
+            else -> Icons.AutoMirrored.Filled.ArrowForward
+        }
+    }
+    CardAction(
+        label = if (available) card.buttonLabel.orEmpty() else stringResource(R.string.yaps_support_offer_unavailable),
+        enabled = available,
+        onClick = { env.onLink(m) },
+        modifier = Modifier.widthIn(min = 260.dp, max = BubbleMaxWidth),
+        topPadding = 0.dp,
+        leading = if (available) { ink -> Icon(icon, contentDescription = null, tint = ink, modifier = Modifier.size(16.dp)) } else null,
+    )
+}
+
+/** Rating card: five stars under the "How did we do?" bubble, then the thanks note. */
+@Composable
+private fun RatingCard(m: Message, env: BubbleEnv) {
+    val colors = LocalSupportColors.current
+    val score = m.card?.rating?.takeIf { it in 1..5 } ?: 0
+    CardSurface(tag = stringResource(R.string.yaps_support_card_rating), trailingTag = env.appName?.uppercase(Locale.getDefault())) {
+        Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.Center) {
+            for (n in 1..5) {
+                val label = stringResource(R.string.yaps_support_rating_stars, n)
+                Box(
+                    Modifier
+                        .size(44.dp)
+                        .selectable(selected = n == score, role = Role.RadioButton, onClick = { env.onRate(m, n) })
+                        .semantics { contentDescription = label },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.Star,
+                        contentDescription = null,
+                        tint = if (n <= score) colors.accent else colors.faintText,
+                        modifier = Modifier.size(30.dp),
+                    )
+                }
+            }
+        }
+        if (score > 0) {
+            Text(
+                stringResource(R.string.yaps_support_rating_thanks),
+                style = TypeTokens.TrayTitle,
+                color = colors.onIncoming,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
+            )
+        }
     }
 }
 

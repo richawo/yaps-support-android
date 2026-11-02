@@ -109,14 +109,17 @@ internal object AppearanceResolver {
         return (exact ?: map["en"])?.takeIf { it.isNotBlank() }
     }
 
-    /** `#RGB`, `#RRGGBB` or `#AARRGGBB` → ARGB. Anything else → `null` (falls through to local/default). */
+    /**
+     * `#RGB`, `#RRGGBB` or `#RRGGBBAA` (alpha last, as in the inbox, iOS and the web) → ARGB.
+     * Anything else → `null` (falls through to local/default).
+     */
     fun parseHex(value: String?): Int? {
         val hex = value?.trim()?.removePrefix("#") ?: return null
         if (hex.isEmpty() || !hex.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) return null
         return when (hex.length) {
             3 -> (0xFF000000 or hex.map { "$it$it" }.joinToString("").toLong(16)).toInt()
             6 -> (0xFF000000 or hex.toLong(16)).toInt()
-            8 -> hex.toLong(16).toInt()
+            8 -> hex.toLong(16).let { rgba -> ((rgba and 0xFF) shl 24) or (rgba ushr 8) }.toInt()
             else -> null
         }
     }

@@ -5,7 +5,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-val sdkVersion = "1.0.0"
+val sdkVersion = "2.0.0"
 
 // The protocol fixtures are the source of truth shared by every SDK. In the monorepo they're read
 // from protocol/fixtures; the standalone published repo uses the copy in src/test/fixtures.

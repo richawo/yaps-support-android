@@ -183,7 +183,7 @@ class FixtureDecodingTest {
         val r = WireJson.decodeFromString(RegisterResponse.serializer(), Fixtures.read("register-response.json"))
         assertEquals("dt_reg_8f2k_example", r.deviceToken)
         assertFalse(r.customer.verified)
-        assertEquals("Clucky", r.config.appName)
+        assertEquals("Wakely", r.config.appName)
         assertEquals(listOf("paywall_declined"), r.config.trackedEvents)
         assertEquals("es", r.config.translation.customerLanguage)
         assertEquals(60, r.config.pollIntervalSeconds)
@@ -201,7 +201,7 @@ class FixtureDecodingTest {
     fun appearanceDecodes() {
         val a = WireJson.decodeFromString(Appearance.serializer(), Fixtures.read("appearance.json"))
         assertEquals("#FF8A5B", a.colors?.accent?.dark)
-        assertEquals("Soporte de Clucky", a.title?.get("es"))
+        assertEquals("Soporte de Wakely", a.title?.get("es"))
         assertEquals("rounded", a.fontStyle)
         assertNull(a.welcomeIconUrl)
     }

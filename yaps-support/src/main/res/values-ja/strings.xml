@@ -66,4 +66,7 @@
     <string name="yaps_support_code_expired">期限切れ</string>
     <string name="yaps_support_code_expires">%1$sまで有効</string>
     <string name="yaps_support_code_spoken">コード %1$s</string>
+    <string name="yaps_support_card_rating">評価</string>
+    <string name="yaps_support_rating_thanks">評価ありがとうございます！</string>
+    <string name="yaps_support_rating_stars">5段階中%1$d</string>
 </resources>

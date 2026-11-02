@@ -2,7 +2,9 @@ package ai.yaps.support
 
 import ai.yaps.support.internal.core.Backoff
 import ai.yaps.support.internal.core.Limits
+import ai.yaps.support.internal.core.PaywallRules
 import ai.yaps.support.internal.core.PushRecognizer
+import ai.yaps.support.internal.core.SessionRules
 import ai.yaps.support.internal.core.ReviewLink
 import ai.yaps.support.internal.core.TranslationRule
 import ai.yaps.support.internal.core.Ulid
@@ -10,6 +12,7 @@ import ai.yaps.support.internal.protocol.Message
 import ai.yaps.support.internal.protocol.Translation
 import ai.yaps.support.internal.protocol.WireJson
 import ai.yaps.support.ui.isOfferAvailable
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
@@ -97,8 +100,8 @@ class ReviewLinkTest {
     @Test
     fun marketUrlFallsBackToHttps() {
         assertEquals(
-            listOf("market://details?id=com.clucky.app", "https://play.google.com/store/apps/details?id=com.clucky.app"),
-            ReviewLink.candidates("market://details?id=com.clucky.app", "ignored"),
+            listOf("market://details?id=com.wakely.app", "https://play.google.com/store/apps/details?id=com.wakely.app"),
+            ReviewLink.candidates("market://details?id=com.wakely.app", "ignored"),
         )
     }
 
@@ -185,5 +188,43 @@ class BackoffAndIdsTest {
         assertFalse(Limits.isValidEventName("has space"))
         assertFalse(Limits.isValidEventName(""))
         assertEquals(mapOf("plan" to "pro"), Limits.sanitizeMetadata(mapOf("plan" to "pro", "bad key" to "x")))
+        // Long values are dropped, not cut, like iOS and the web.
+        val long = "x".repeat(513)
+        assertEquals(mapOf("ok" to "x".repeat(512)), Limits.sanitizeMetadata(mapOf("ok" to "x".repeat(512), "notes" to long)))
+        val many = (1..35).associate { "k$it" to "v" }
+        assertEquals((1..30).map { "k$it" }, Limits.sanitizeMetadata(many).keys.toList())
+    }
+
+    @Test
+    fun identifyingSomeoneElseIsAUserSwitch() {
+        assertTrue(SessionRules.isUserSwitch("u_1", "u_2"))
+        assertFalse(SessionRules.isUserSwitch("u_1", "u_1"))
+        assertFalse("Nobody known yet: label this session", SessionRules.isUserSwitch(null, "u_2"))
+        assertFalse(SessionRules.isUserSwitch("u_1", null))
+    }
+
+    @Test
+    fun trackOpensTheChatOnlyWithinFiveSecondsInTheForeground() {
+        assertTrue(SessionRules.shouldOpenChatAfterTrack(opensChat = true, serverSaysOpen = true, elapsedMs = 4_999, appForeground = true, chatOpen = false))
+        assertTrue(SessionRules.shouldOpenChatAfterTrack(opensChat = true, serverSaysOpen = true, elapsedMs = 5_000, appForeground = true, chatOpen = false))
+        assertFalse(SessionRules.shouldOpenChatAfterTrack(opensChat = true, serverSaysOpen = true, elapsedMs = 5_001, appForeground = true, chatOpen = false))
+        assertFalse(SessionRules.shouldOpenChatAfterTrack(opensChat = true, serverSaysOpen = true, elapsedMs = 100, appForeground = false, chatOpen = false))
+        assertFalse(SessionRules.shouldOpenChatAfterTrack(opensChat = true, serverSaysOpen = true, elapsedMs = 100, appForeground = true, chatOpen = true))
+        assertFalse(SessionRules.shouldOpenChatAfterTrack(opensChat = false, serverSaysOpen = true, elapsedMs = 100, appForeground = true, chatOpen = false))
+        assertFalse(SessionRules.shouldOpenChatAfterTrack(opensChat = true, serverSaysOpen = false, elapsedMs = 100, appForeground = true, chatOpen = false))
+    }
+
+    @Test
+    fun paywallAvailabilityThatThrowsCountsAsUnavailable() = runBlocking {
+        val ids = listOf("yearly", "monthly", "lifetime")
+        val check: suspend (String) -> Boolean = { id ->
+            when (id) {
+                "monthly" -> error("store not ready")
+                "lifetime" -> false
+                else -> true
+            }
+        }
+        assertEquals(listOf("yearly"), PaywallRules.available(ids, { it }, check))
+        assertEquals(ids, PaywallRules.available(ids, { it }, null))
     }
 }

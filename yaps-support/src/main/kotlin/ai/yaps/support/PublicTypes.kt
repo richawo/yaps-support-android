@@ -11,6 +11,36 @@ public enum class PushProvider(internal val wire: String) {
     APNS("apns"),
 }
 
+/**
+ * The in-app review prompt that's due for this customer: their count of the app's prompt event
+ * reached a milestone they haven't put off or answered. Show it in your own UI.
+ *
+ * @property count how many times the customer reported the prompt's event, across their devices.
+ * @property url the review page for this device: the Play listing, or the app's own link.
+ * @property shown another device already showed it. Skip a one-off banner; a lasting row is fine.
+ */
+public data class ReviewPrompt(
+    val milestone: Int,
+    val count: Int,
+    val title: String,
+    val body: String,
+    val buttonLabel: String,
+    val url: String,
+    val shown: Boolean,
+)
+
+/** What the customer did with a [ReviewPrompt]. */
+public enum class ReviewPromptAnswer(internal val wire: String) {
+    /** Hide it until the next milestone. */
+    LATER("later"),
+
+    /** They say they left a review. It isn't shown again. */
+    REVIEWED("reviewed"),
+
+    /** They don't want to be asked. It isn't shown again. */
+    OPTED_OUT("opted_out"),
+}
+
 /** How much the SDK writes to Logcat (tag `YapsSupport`). Tokens and message text are never logged. */
 public enum class LogLevel { NONE, ERROR, WARNING, INFO, DEBUG }
 
@@ -33,7 +63,7 @@ public enum class SupportCornerStyle { ROUND, SOFT, SQUARE }
  * over these, field by field: **remote > local > default**. Remote changes apply the next time the
  * chat opens, never mid-conversation.
  *
- * Java: `SupportAppearance a = new SupportAppearance(); a.setAccent(new SupportColor(0xFFFF7A45));`
+ * Java: `SupportAppearance a = new SupportAppearance(); a.setAccent(new SupportColor(0xFFFF7A45, 0xFFFF7A45));`
  */
 public data class SupportAppearance(
     public var accent: SupportColor? = null,
@@ -77,6 +107,17 @@ public data class SupportPaywall @JvmOverloads constructor(
     public val products: List<SupportPaywallProduct> = emptyList(),
 )
 
+/**
+ * A screen in your app that agents can send as a link card ("Edit profile", "Restore purchases").
+ * Tapping the card closes the chat if the SDK presented it, then calls [YapsSupport.onScreen] with [id].
+ */
+public data class SupportScreen(
+    /** 1–64 characters `[A-Za-z0-9_.-]`, e.g. `edit_profile`. */
+    public val id: String,
+    /** What agents see in the inbox, at most 60 characters. */
+    public val title: String,
+)
+
 /** Things that happen in support, delivered on [YapsSupport.events]. */
 public sealed class SupportEvent {
     public data object ChatOpened : SupportEvent()
@@ -95,6 +136,13 @@ public sealed class SupportEvent {
 
     /** The user tapped a code card's Redeem button (for Play codes, `play.google.com/redeem`). */
     public data class CodeOpened(public val messageId: String, public val campaignId: String?) : SupportEvent()
+
+    /**
+     * A link card's button opened its web page, email, phone or text link, this app's settings page,
+     * or (through [YapsSupport.onScreen]) one of your screens. [linkId] is the saved link it came
+     * from, `null` for a one-off link.
+     */
+    public data class LinkOpened(public val messageId: String, public val linkId: String?) : SupportEvent()
     public data object DataDeleted : SupportEvent()
 
     /** The identity JWT was rejected (`identity_token_invalid` / `identity_token_expired`). The chat keeps working unverified. */

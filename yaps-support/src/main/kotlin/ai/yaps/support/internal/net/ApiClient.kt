@@ -9,6 +9,8 @@ import ai.yaps.support.internal.protocol.Message
 import ai.yaps.support.internal.protocol.MessagesResponse
 import ai.yaps.support.internal.protocol.RegisterRequest
 import ai.yaps.support.internal.protocol.RegisterResponse
+import ai.yaps.support.internal.protocol.ReviewPromptActionResponse
+import ai.yaps.support.internal.protocol.ReviewPromptResponse
 import ai.yaps.support.internal.protocol.SendMessageRequest
 import ai.yaps.support.internal.protocol.SendMessageResponse
 import ai.yaps.support.internal.protocol.TrackRequest
@@ -108,8 +110,20 @@ internal class ApiClient(
     suspend fun action(messageId: String, action: String = "open") =
         callUnit(post("v1/sdk/actions/$messageId", buildJsonObject { put("action", action) }.toString()))
 
+    /** A rating card's score (1–5), PROTOCOL §3.6. */
+    suspend fun rate(messageId: String, score: Int) =
+        callUnit(post("v1/sdk/actions/$messageId", buildJsonObject { put("action", "rate"); put("score", score) }.toString()))
+
     suspend fun track(name: String, opensChat: Boolean): TrackResponse =
         call(post("v1/sdk/events", WireJson.encodeToString(TrackRequest.serializer(), TrackRequest(name, opensChat))), TrackResponse.serializer())
+
+    suspend fun reviewPrompt(): ReviewPromptResponse = call(request("v1/sdk/review-prompt").get().build(), ReviewPromptResponse.serializer())
+
+    suspend fun reviewPromptAction(action: String, milestone: Int): ReviewPromptActionResponse =
+        call(
+            post("v1/sdk/review-prompt", buildJsonObject { put("action", action); put("milestone", milestone) }.toString()),
+            ReviewPromptActionResponse.serializer(),
+        )
 
     suspend fun createUpload(body: UploadRequest): UploadResponse =
         call(post("v1/sdk/uploads", WireJson.encodeToString(UploadRequest.serializer(), body)), UploadResponse.serializer())

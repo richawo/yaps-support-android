@@ -2,12 +2,14 @@ package ai.yaps.support.internal.core
 
 import ai.yaps.support.SupportEvent
 import ai.yaps.support.internal.protocol.Card
+import ai.yaps.support.internal.protocol.CardType
 import ai.yaps.support.internal.protocol.CodePlatform
+import ai.yaps.support.internal.protocol.LinkTarget
 import ai.yaps.support.internal.protocol.Message
 import ai.yaps.support.ui.parseIsoMillis
 
 /*
- * PROTOCOL §5 app promo and code cards: what each one shows and what its taps do. Kept free of
+ * PROTOCOL §5 app promo, code and link cards: what each one shows and what its taps do. Kept free of
  * Android types so the rules run as plain JVM tests; the Compose cards only draw the result.
  */
 
@@ -118,6 +120,52 @@ internal object PlayStoreLink {
             ?.get(1)
 }
 
+// ---------------------------------------------------------------- link cards
+
+/** The only schemes a link card may open (PROTOCOL §5). Anything else is refused, whatever the server sent. */
+internal val LINK_SCHEMES: Set<String> = setOf("https", "mailto", "tel", "sms")
+
+internal fun isAllowedLinkUrl(url: String?): Boolean {
+    val trimmed = url?.trim().orEmpty()
+    val colon = trimmed.indexOf(':')
+    if (colon <= 0) return false
+    val scheme = trimmed.substring(0, colon).lowercase()
+    // https needs a host; the others need something after the colon.
+    return when (scheme) {
+        "https" -> trimmed.length > colon + 3 && trimmed.startsWith("//", colon + 1)
+        in LINK_SCHEMES -> trimmed.length > colon + 1
+        else -> false
+    }
+}
+
+/**
+ * PROTOCOL §5: a link card's button works when the server says so and this device can open it: a
+ * `url` with an allowed scheme, the app's settings page, or a screen that is in the host's current
+ * [YapsSupport.screens][ai.yaps.support.YapsSupport.screens] list with an `onScreen` handler set
+ * (mirroring how offer cards check paywalls and `onPaywall`).
+ */
+internal fun isLinkAvailable(card: Card, screenIds: Set<String>, hasScreenHandler: Boolean): Boolean {
+    if (!card.available) return false
+    return when (card.target) {
+        LinkTarget.URL -> isAllowedLinkUrl(card.url)
+        LinkTarget.APP_SETTINGS -> true
+        LinkTarget.SCREEN -> hasScreenHandler && card.screenId != null && card.screenId in screenIds
+        else -> false
+    }
+}
+
+/** What a link card's tap does on this device. The SDK supplies the Android side; tests supply fakes. */
+internal interface LinkOpener {
+    /** `ACTION_VIEW`; `false` when no installed app handles it. */
+    fun openUrl(url: String): Boolean
+
+    /** `Settings.ACTION_APPLICATION_DETAILS_SETTINGS` for this app's package. */
+    fun openAppSettings(): Boolean
+
+    /** Closes the chat if the SDK presented it, then calls the host's `onScreen`. */
+    fun openScreen(screenId: String): Boolean
+}
+
 /** Opens a URL with an `ACTION_VIEW` intent; `false` when no installed app handles it. */
 internal fun interface UrlLauncher {
     fun launch(url: String): Boolean
@@ -136,7 +184,7 @@ internal object CardActionName {
 }
 
 /**
- * Taps on app promo and code cards: do the thing, then emit the [SupportEvent] and send the action
+ * Taps on app promo, code and link cards: do the thing, then emit the [SupportEvent] and send the action
  * receipt. Nothing is emitted or recorded when the tap could not do anything.
  */
 internal class CardActions(
@@ -175,6 +223,24 @@ internal class CardActions(
             return false
         }
         emit(SupportEvent.CodeOpened(message.id, card.campaignId))
+        receipt(message.id, CardActionName.OPEN)
+        return true
+    }
+
+    fun openLink(message: Message, screenIds: Set<String>, hasScreenHandler: Boolean, opener: LinkOpener): Boolean {
+        val card = message.card ?: return false
+        if (card.type != CardType.LINK || !isLinkAvailable(card, screenIds, hasScreenHandler)) return false
+        val opened = when (card.target) {
+            LinkTarget.URL -> opener.openUrl(card.url.orEmpty().trim())
+            LinkTarget.APP_SETTINGS -> opener.openAppSettings()
+            LinkTarget.SCREEN -> opener.openScreen(card.screenId.orEmpty())
+            else -> false
+        }
+        if (!opened) {
+            Log.w("No app can open the link card")
+            return false
+        }
+        emit(SupportEvent.LinkOpened(message.id, card.linkId))
         receipt(message.id, CardActionName.OPEN)
         return true
     }

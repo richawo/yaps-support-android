@@ -132,4 +132,38 @@ class ApiClientTest {
         assertEquals(1793353260000L, parseIsoMillis("2026-10-30T10:41:00+01:00"))
         assertNull(parseIsoMillis("yesterday"))
     }
+
+    @Test
+    fun reviewPromptReadsAndSendsActions() = runBlocking {
+        token = "dt_reg_x_secret"
+        server.enqueue(
+            MockResponse().setBody(
+                """{"prompt":{"milestone":100,"count":104,"title":"Enjoying Yaps?","body":"A quick review helps.","buttonLabel":"Leave a rating","url":"market://details?id=ai.yaps.app","shown":false}}""",
+            ),
+        )
+        val due = api.reviewPrompt().prompt!!
+        assertEquals(100, due.milestone)
+        assertEquals("market://details?id=ai.yaps.app", due.url)
+        assertFalse(due.shown)
+        assertEquals("/v1/sdk/review-prompt", server.takeRequest().path)
+
+        server.enqueue(MockResponse().setBody("""{"claimed":true}"""))
+        assertEquals(true, api.reviewPromptAction("shown", 100).claimed)
+        val req = server.takeRequest()
+        assertEquals("POST", req.method)
+        assertEquals("""{"action":"shown","milestone":100}""", req.body.readUtf8())
+
+        server.enqueue(MockResponse().setBody("""{"prompt":null}"""))
+        assertNull(api.reviewPrompt().prompt)
+    }
+
+    @Test
+    fun ratingSendsTheScoreWithTheCardAction() = runBlocking {
+        token = "dt_reg_x_secret"
+        server.enqueue(MockResponse().setResponseCode(204))
+        api.rate("msg_r", 4)
+        val req = server.takeRequest()
+        assertEquals("/v1/sdk/actions/msg_r", req.path)
+        assertEquals("""{"action":"rate","score":4}""", req.body.readUtf8())
+    }
 }

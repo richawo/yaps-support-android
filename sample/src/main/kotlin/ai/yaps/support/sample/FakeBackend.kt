@@ -84,9 +84,21 @@ class FakeBackend {
                 .put("buttonLabel", "Get it").put("iconUrl", "$baseUrl/v1/files/icons/${demoIcon()}").put("promotedAppId", "app_stacked")
                 .put("url", "market://details?id=ai.yaps.stacked").put("installed", false).put("available", true),
         )
+        addMessage(customer(), "Also, how do I change my email? And my alarm went silent this morning.", at = now(-4))
+        // Link cards: a screen the app registered in SampleApp (opens through onScreen) and a web page.
+        addMessage(
+            frederick, "You can change your email from your profile.", at = now(-4), kind = "card",
+            card = JSONObject().put("type", "link").put("buttonLabel", "Edit profile").put("linkId", "lnk_profile")
+                .put("target", "screen").put("screenId", "edit_profile").put("available", true),
+        )
+        addMessage(
+            frederick, "Our guide walks through why an alarm might stay silent.", at = now(-4), kind = "card",
+            card = JSONObject().put("type", "link").put("buttonLabel", "Read the guide").put("linkId", "lnk_guide")
+                .put("target", "url").put("url", "https://support.yaps.ai").put("available", true),
+        )
         addMessage(customer(), "Will do, thanks Frederick! 🐓", at = now(-3))
         addMessage(
-            frederick, "Glad that's sorted! If Clucky is working for you, a quick rating helps a lot.", at = now(-2), kind = "card",
+            frederick, "Glad that's sorted! If Wakely is working for you, a quick rating helps a lot.", at = now(-2), kind = "card",
             card = JSONObject().put("type", "review").put("buttonLabel", "Rate on Google Play")
                 .put("url", "market://details?id=ai.yaps.support.sample").put("available", true),
         )
@@ -169,7 +181,7 @@ class FakeBackend {
             }
 
     private fun config() = JSONObject()
-        .put("appId", "app_demo").put("appName", "Clucky").put("verifiedOnly", false).put("blocked", false)
+        .put("appId", "app_demo").put("appName", "Wakely").put("verifiedOnly", false).put("blocked", false)
         .put("trackedEvents", JSONArray().put("paywall_declined").put("onboarding_completed"))
         .put("translation", JSONObject().put("enabled", true))
         .put("teamDisplay", JSONObject().put("showNames", true).put("showPhotos", true))
@@ -320,7 +332,7 @@ class FakeBackend {
             {"colors":{"accent":{"light":"#FF6B35","dark":"#FF8A5B"},"onAccent":{"light":"#FFFFFF","dark":"#1A0A00"},
              "background":{"light":"#FFFFFF","dark":"#0B0B0D"},"incomingBackground":{"light":"#F2F2F4","dark":"#1C1C1F"},
              "incomingForeground":{"light":"#111113","dark":"#EDEDEF"}},
-             "title":{"en":"Clucky support","es":"Soporte de Clucky"},"welcomeTitle":{"en":"How can we help?"},
+             "title":{"en":"Wakely support","es":"Soporte de Wakely"},"welcomeTitle":{"en":"How can we help?"},
              "welcomeText":{"en":"We usually reply within a few hours."},"colorScheme":"system","fontStyle":"default",
              "cornerStyle":"round","showCloseButton":true,"welcomeIconUrl":null,"fadeOlderMessages":false}
         """.trimIndent()

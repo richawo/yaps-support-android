@@ -66,4 +66,7 @@
     <string name="yaps_support_code_expired">Expiré</string>
     <string name="yaps_support_code_expires">Valable jusqu’au %1$s</string>
     <string name="yaps_support_code_spoken">Code %1$s</string>
+    <string name="yaps_support_card_rating">Note</string>
+    <string name="yaps_support_rating_thanks">Merci pour votre note !</string>
+    <string name="yaps_support_rating_stars">%1$d sur 5</string>
 </resources>

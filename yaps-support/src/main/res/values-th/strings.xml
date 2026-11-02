@@ -66,4 +66,7 @@
     <string name="yaps_support_code_expired">หมดอายุแล้ว</string>
     <string name="yaps_support_code_expires">ใช้ได้ถึง %1$s</string>
     <string name="yaps_support_code_spoken">โค้ด %1$s</string>
+    <string name="yaps_support_card_rating">คะแนน</string>
+    <string name="yaps_support_rating_thanks">ขอบคุณสำหรับคะแนน!</string>
+    <string name="yaps_support_rating_stars">%1$d จาก 5</string>
 </resources>

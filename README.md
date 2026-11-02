@@ -5,7 +5,7 @@ and files, replies arrive live or by push, and your team answers from the inbox 
 [support.yaps.ai](https://support.yaps.ai) or the operator app.
 
 - Kotlin first, Java friendly. Jetpack Compose UI plus a ready-made `SupportActivity` for View apps.
-- minSdk 24, compile and target SDK 36. Edge-to-edge, predictive back, IME insets, TalkBack, RTL,
+- minSdk 24, compiled against SDK 36 (the library sets no target SDK; the sample targets 36). Edge-to-edge, predictive back, IME insets, TalkBack, RTL,
   font scaling, dark theme, and 22 languages.
 - No Firebase dependency: your app forwards the FCM token and data messages.
 - No storage or camera permissions: the system Photo Picker, the camera app and the document picker do the work.
@@ -33,7 +33,7 @@ dependencyResolutionManagement {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.github.richawo:yaps-support-android:1.0.0")
+    implementation("com.github.richawo:yaps-support-android:2.0.0")
 }
 ```
 
@@ -51,7 +51,7 @@ class App : Application() {
 ```
 
 `configure` registers the device in the background and fetches your published appearance. No
-conversation exists until the user sends their first message.
+conversation exists until the user opens the chat or sends their first message.
 
 When your user signs in (and on every launch while they are signed in):
 
@@ -112,7 +112,7 @@ forward two things: the token and incoming messages.
 
 1. Firebase console → your project → **Project settings → Service accounts → Generate new private key**.
    This downloads a JSON file.
-2. Inbox → **Settings → your app → Push → Android (FCM)** → upload that JSON.
+2. Inbox → **App settings → Push → Android (FCM)** → upload that JSON.
 3. Press **Send test push** with a test device selected to confirm it works.
 
 The key only lets Support Yaps send messages to your app's tokens. Support Yaps uses FCM as a
@@ -156,13 +156,27 @@ FirebaseMessaging.getInstance().token.addOnSuccessListener { YapsSupport.setPush
 
 - Returns `false` for anything without `support == "1"`, so you can chain your own handling.
   `YapsSupport.isSupportPush(data)` checks without handling.
-- Updates `unreadCount` from the payload's badge.
+- Updates `unreadCount` from the payload's badge, or fetches it when the push has none
+  (`updatesAppBadge = false`).
 - Shows a notification in a **Support** channel the SDK creates, grouped per conversation, unless
   the chat is on screen (then it refreshes the thread instead).
 - A tap opens `SupportActivity` directly through a `PendingIntent`, stacked on your launcher activity
   so Back returns to your app. There is no trampoline, which Android 12+ blocks.
 
 Set `YapsSupport.notificationIcon = R.drawable.ic_stat_support` to use your own monochrome icon.
+
+### Badge
+
+By default support notifications carry the unread count (`setNumber`, which launchers that show
+counts use for the icon badge). If your app owns the badge, turn that off:
+
+```kotlin
+YapsSupport.updatesAppBadge = false
+```
+
+The SDK then leaves the count off its notifications and tells the server (`badgeEnabled: false` in
+`PATCH /v1/sdk/device`, sent right after registering and whenever the value changes), which stops
+putting `badge` in this device's pushes. `unreadCount` keeps working; read it to draw your own badge.
 
 ### Notification permission (Android 13+)
 
@@ -179,7 +193,7 @@ YapsSupport.events.collect { if (it is SupportEvent.MessageSent) YapsSupport.req
 
 Labels from `identify(userId, name, email)` help your team but anyone could claim any `userId`.
 To prove who the user is, mint a short-lived JWT **on your server** with the app's identity secret
-(`ids_…`, inbox → Settings → your app → Identity) and pass it to the SDK:
+(`ids_…`, inbox → App settings → Identity) and pass it to the SDK:
 
 ```js
 // Node, on your server
@@ -197,9 +211,10 @@ YapsSupport.identify(token = supportTokenFromYourServer)
 
 - Claims: `user_id` (required), `exp` (required), optional `email`, `name`, `nbf`. HS256 only.
 - The token is held in memory only. Never ship the secret in your app.
-- Verified users share **one conversation across devices**, and across your apps if your org links them.
+- Verified users share **one conversation across their devices** in this app (App ID). Your other
+  apps keep their own conversations; the inbox shows them under "Also uses".
 - A rejected token emits `SupportEvent.IdentityRejected(code)` and the chat keeps working unverified.
-- With **Only verified users** turned on in the inbox, unverified users can read but see
+- With **Verified users only** turned on in the inbox (App settings → Identity), unverified users can read but see
   "Sign in to send messages." until a valid token arrives.
 
 ## Paywalls and offer cards (RevenueCat example)
@@ -218,7 +233,7 @@ YapsSupport.paywalls = listOf(
 
 // Hide paywalls that don't apply right now (cards for them show "No longer available").
 YapsSupport.paywallAvailability = { _ ->
-    !Purchases.sharedInstance.awaitCustomerInfo().entitlements["pro"]?.isActive.orFalse()
+    Purchases.sharedInstance.awaitCustomerInfo().entitlements["pro"]?.isActive != true
 }
 
 // Present it. With RevenueCat Paywalls, map the paywall ID to an offering.
@@ -234,7 +249,7 @@ YapsSupport.refreshPaywalls()
 ```
 
 For subscription context in the inbox (trial, renewal, billing issues), add the RevenueCat webhook
-from inbox → Settings → your app → Integrations, and use the same app user ID in RevenueCat as the
+from inbox → App settings → Integrations, and use the same app user ID in RevenueCat as the
 `userId` you pass to `identify`. Superwall, Adapty and Google Play RTDN work the same way.
 
 On Android a discount means a Play subscription offer, not a link to a web checkout.
@@ -281,6 +296,38 @@ from a pool, one per customer).
 - Copy emits `SupportEvent.CodeCopied(messageId, campaignId)` and Redeem emits
   `SupportEvent.CodeOpened(messageId, campaignId)`. Both are recorded for the campaign's stats.
 
+## Link cards and screens
+
+Agents can send a link card: the message text with one button under it. The button opens
+
+- a web page, or an email, phone or text message link (`ACTION_VIEW`; only `https:`, `mailto:`,
+  `tel:` and `sms:` links open, anything else is refused),
+- your app's page in system settings (`Settings.ACTION_APPLICATION_DETAILS_SETTINGS`), for example to
+  turn notifications back on,
+- or a screen in your app that you register:
+
+```kotlin
+// Application.onCreate (or whenever the list changes)
+YapsSupport.screens = listOf(
+    SupportScreen(id = "edit_profile", title = "Edit profile"),      // [A-Za-z0-9_.-], ≤ 64 chars; title ≤ 60; up to 50
+    SupportScreen(id = "restore_purchases", title = "Restore purchases"),
+)
+
+// Navigate. The SDK has already closed the chat it presented (as closeChat() does).
+YapsSupport.onScreen = { screenId -> navController.navigate(screenId) }
+```
+
+Screens are reported to the server after registering and whenever you set `screens`, so agents
+can only pick screens this device can open. Invalid IDs and repeats are dropped. A screen card is
+**No longer available** when its screen isn't in your current list or `onScreen` is `null`, and so is
+any link the server marks unavailable.
+
+Once the link has opened (an app took it, or `onScreen` was called) the SDK emits
+`SupportEvent.LinkOpened(messageId, linkId)` (`linkId` is `null` for a one-off link that wasn't
+saved in the inbox) and records it for the link's stats. A link no app can open does neither.
+
+Links in plain message text are tappable too: `https://` URLs, without trailing punctuation.
+
 ## Automations
 
 ```kotlin
@@ -297,7 +344,7 @@ and apply the next time the chat opens, never mid-conversation.
 YapsSupport.appearance = SupportAppearance(
     accent = SupportColor(light = 0xFFFF6B35.toInt(), dark = 0xFFFF8A5B.toInt()),
     onAccent = SupportColor(0xFFFFFFFF.toInt(), 0xFF1A0A00.toInt()),
-    title = "Clucky support",
+    title = "Wakely support",
     welcomeTitle = "How can we help?",
     cornerStyle = SupportCornerStyle.ROUND,
     colorScheme = SupportColorScheme.SYSTEM,
@@ -321,6 +368,7 @@ YapsSupport.events.collect { event ->
         is SupportEvent.AppPromoOpened -> {}
         is SupportEvent.CodeCopied -> {}
         is SupportEvent.CodeOpened -> {}
+        is SupportEvent.LinkOpened -> {}
         SupportEvent.DataDeleted -> {}
         is SupportEvent.IdentityRejected -> {}
     }
@@ -345,8 +393,10 @@ YapsSupport.events.collect { event ->
 | `appearance`, `usesRemoteAppearance`, `languageOverride`, `notificationIcon` | Look and language. |
 | `events`, `addEventListener` / `removeEventListener` | Things that happen. |
 | `paywalls`, `onPaywall`, `paywallAvailability`, `refreshPaywalls()` | Offer cards. |
+| `screens`, `onScreen` | Screens that link cards can open. |
 | `track(name, opensChat = false)` | Automation events. |
 | `setPushToken(token, provider = FCM)`, `handlePush(context, data)`, `isSupportPush(data)`, `requestNotificationPermission(activity)` | Push. |
+| `updatesAppBadge` | Whether notifications and pushes carry the unread count (default `true`). |
 
 ## How it behaves
 
@@ -361,7 +411,7 @@ YapsSupport.events.collect { event ->
 - **History.** The last 200 messages are cached for instant, offline display; older pages load as you scroll up.
   Drafts are kept across launches.
 - **Photos and files.** Photos are downscaled to ≤ 2,048 px and ≤ 1 MiB JPEG with EXIF rotation
-  applied; files can be PDF, TXT, ZIP or LOG up to 10 MB; up to 5 per message, with upload progress.
+  applied; files can be PDF, TXT, ZIP or LOG up to 10 MiB; up to 5 per message, with upload progress.
 - **Security.** The device token is encrypted with an AES-GCM key in the Android Keystore. On a
   `401` the SDK registers again. The identity JWT stays in memory.
 - **Translation.** When the team writes in another language, the user sees the translation for
@@ -403,7 +453,8 @@ when you call `requestNotificationPermission`). No storage, camera or contacts p
 `:sample` runs the whole SDK against an in-process fake backend (MockWebServer speaking the real
 protocol, including the WebSocket), so it works offline with no account. Send a message and
 "Frederick" reads it, types and replies. The seeded conversation includes an offer card, a code
-card, an app promo card and a review card.
+card, an app promo card, two link cards (a registered `edit_profile` screen and a web page) and a
+review card.
 
 ```bash
 ./gradlew :sample:installDebug
@@ -421,8 +472,9 @@ Unit tests decode every conformance fixture in `../../protocol/fixtures` (or the
 property, so the shared fixtures stay the single source of truth) and cover unknown fields and
 frames, the translation rule, push recognition, the outbox (dedupe, backoff, failure, process death),
 appearance precedence, review and app promo store links (`market://` with the https fallback), app
-promo and code card states (installed, unavailable, expired, available), card events and action
-receipts, and the REST client. Compose previews live in
+promo and code card states (installed, unavailable, expired, available), link card availability
+per target and the allowed URL schemes, screen validation, the `screens` and `badgeEnabled` device
+updates, links in message text, card events and action receipts, and the REST client. Compose previews live in
 `yaps-support/src/main/kotlin/ai/yaps/support/ui/Previews.kt`.
 
 Strings are generated for all 22 locales by `scripts/gen_strings.py`. Add a key there, then run

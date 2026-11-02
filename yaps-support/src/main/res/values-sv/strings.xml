@@ -66,4 +66,7 @@
     <string name="yaps_support_code_expired">Har gått ut</string>
     <string name="yaps_support_code_expires">Giltig till %1$s</string>
     <string name="yaps_support_code_spoken">Kod %1$s</string>
+    <string name="yaps_support_card_rating">Betyg</string>
+    <string name="yaps_support_rating_thanks">Tack för ditt betyg!</string>
+    <string name="yaps_support_rating_stars">%1$d av 5</string>
 </resources>

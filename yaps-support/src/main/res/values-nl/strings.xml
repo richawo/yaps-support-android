@@ -66,4 +66,7 @@
     <string name="yaps_support_code_expired">Verlopen</string>
     <string name="yaps_support_code_expires">Geldig tot %1$s</string>
     <string name="yaps_support_code_spoken">Code %1$s</string>
+    <string name="yaps_support_card_rating">Beoordeling</string>
+    <string name="yaps_support_rating_thanks">Bedankt voor je beoordeling!</string>
+    <string name="yaps_support_rating_stars">%1$d van 5</string>
 </resources>

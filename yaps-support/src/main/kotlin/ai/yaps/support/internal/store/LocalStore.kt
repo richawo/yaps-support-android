@@ -56,6 +56,11 @@ internal class LocalStore(context: Context) {
         get() = prefs.getBoolean(K_VERIFIED, false)
         set(value) = prefs.edit().putBoolean(K_VERIFIED, value).apply()
 
+    /** The `userId` the server last reported for this device's customer, to spot a user switch. */
+    var customerUserId: String?
+        get() = prefs.getString(K_USER_ID, null)
+        set(value) = prefs.edit().apply { if (value == null) remove(K_USER_ID) else putString(K_USER_ID, value) }.apply()
+
     var unread: Int
         get() = prefs.getInt(K_UNREAD, 0)
         set(value) = prefs.edit().putInt(K_UNREAD, value).apply()
@@ -72,6 +77,14 @@ internal class LocalStore(context: Context) {
                 else putString(K_PUSH_TOKEN, value.first).putString(K_PUSH_PROVIDER, value.second)
             }.apply()
         }
+
+    /**
+     * `badgeEnabled` as the server last stored it for this registration (PROTOCOL §3.4). A new
+     * registration starts `true`, so only a change from that is sent.
+     */
+    var badgeEnabled: Boolean
+        get() = prefs.getBoolean(K_BADGE_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(K_BADGE_ENABLED, value).apply()
 
     var appearanceEtag: String?
         get() = prefs.getString(K_ETAG, null)
@@ -111,7 +124,7 @@ internal class LocalStore(context: Context) {
         draftFile.delete()
         outboxFile.delete()
         File(root, "outbox-files").deleteRecursively()
-        prefs.edit().remove(K_CONFIG).remove(K_UNREAD).remove(K_VERIFIED).apply()
+        prefs.edit().remove(K_CONFIG).remove(K_UNREAD).remove(K_VERIFIED).remove(K_USER_ID).remove(K_BADGE_ENABLED).apply()
     }
 
     private fun <T> read(file: File, parse: (String) -> T): T? = try {
@@ -138,9 +151,11 @@ internal class LocalStore(context: Context) {
         const val K_BASE_URL = "base_url"
         const val K_CONFIG = "config"
         const val K_VERIFIED = "verified"
+        const val K_USER_ID = "customer_user_id"
         const val K_UNREAD = "unread"
         const val K_PUSH_TOKEN = "push_token"
         const val K_PUSH_PROVIDER = "push_provider"
         const val K_ETAG = "appearance_etag"
+        const val K_BADGE_ENABLED = "badge_enabled"
     }
 }

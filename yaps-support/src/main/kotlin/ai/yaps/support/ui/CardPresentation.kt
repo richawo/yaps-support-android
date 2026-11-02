@@ -3,10 +3,13 @@ package ai.yaps.support.ui
 import ai.yaps.support.internal.core.AppPromoState
 import ai.yaps.support.internal.core.appPromoState
 import ai.yaps.support.internal.protocol.CardType
+import ai.yaps.support.internal.protocol.LinkTarget
 import ai.yaps.support.internal.protocol.Message
 
 /** How a message's card renders. Unknown card types render as plain text (PROTOCOL §9). */
-internal enum class CardPresentation { None, Review, Offer, AppPromo, Code, PlainText }
+internal enum class CardPresentation { None, Review, Offer, AppPromo, Code, Link, Rating, PlainText }
+
+private val LINK_TARGETS = setOf(LinkTarget.URL, LinkTarget.APP_SETTINGS, LinkTarget.SCREEN)
 
 internal fun cardPresentation(message: Message): CardPresentation {
     val card = message.card ?: return CardPresentation.None
@@ -18,6 +21,9 @@ internal fun cardPresentation(message: Message): CardPresentation {
         CardType.APP -> if (appPromoState(card) == AppPromoState.Text) CardPresentation.PlainText else CardPresentation.AppPromo
         // Expired and other-platform codes still render as a card; only a missing code falls back.
         CardType.CODE -> if (card.code.isNullOrBlank()) CardPresentation.PlainText else CardPresentation.Code
+        // Unavailable links still show their disabled button; a target from a newer protocol (or no label) is just text.
+        CardType.LINK -> if (card.target in LINK_TARGETS && !card.buttonLabel.isNullOrBlank()) CardPresentation.Link else CardPresentation.PlainText
+        CardType.RATING -> CardPresentation.Rating
         else -> CardPresentation.PlainText
     }
 }

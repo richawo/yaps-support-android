@@ -59,12 +59,18 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
                 var embedded by rememberSaveable { mutableStateOf(startEmbedded) }
+                var screen by rememberSaveable { mutableStateOf<String?>(null) }
+                LaunchedEffect(Unit) {
+                    // Link cards for your screens: the SDK has already closed its chat (Activity or Compose).
+                    YapsSupport.onScreen = { id -> screen = id }
+                }
                 if (embedded) {
                     // Compose integration: SupportChat handles insets, IME and predictive back itself.
                     SupportChat(onClose = { embedded = false })
                 } else {
                     Home(onEmbedded = { embedded = true })
                 }
+                screen?.let { id -> ScreenDialog(id, onDismiss = { screen = null }) }
             }
         }
     }
@@ -121,7 +127,7 @@ private fun Home(onEmbedded: () -> Unit) {
                     val handled = YapsSupport.handlePush(
                         context,
                         mapOf("support" to "1", "conversationId" to "cnv_demo", "messageId" to "msg_push_${System.currentTimeMillis()}",
-                            "title" to "Clucky", "body" to "Frederick: Done 🐓 Max volume is on.", "badge" to "1"),
+                            "title" to "Wakely", "body" to "Frederick: Done 🐓 Max volume is on.", "badge" to "1"),
                     )
                     log.add(0, "handlePush → $handled")
                 },
@@ -149,6 +155,17 @@ private fun Home(onEmbedded: () -> Unit) {
     }
 }
 
+/** Where a link card's screen would take the user. A real app navigates in [YapsSupport.onScreen]. */
+@Composable
+private fun ScreenDialog(id: String, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } },
+        title = { Text("Screen") },
+        text = { Text("Your app would navigate to the screen \"$id\" here.") },
+    )
+}
+
 private fun SupportEvent.describe(): String = when (this) {
     is SupportEvent.MessageSent -> "messageSent $messageId"
     is SupportEvent.MessageReceived -> "messageReceived $messageId"
@@ -158,6 +175,7 @@ private fun SupportEvent.describe(): String = when (this) {
     is SupportEvent.AppPromoOpened -> "appPromoOpened $appId"
     is SupportEvent.CodeCopied -> "codeCopied $campaignId"
     is SupportEvent.CodeOpened -> "codeOpened $campaignId"
+    is SupportEvent.LinkOpened -> "linkOpened $linkId"
     is SupportEvent.IdentityRejected -> "identityRejected $code"
     SupportEvent.ChatOpened -> "chatOpened"
     SupportEvent.ChatClosed -> "chatClosed"

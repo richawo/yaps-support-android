@@ -1,6 +1,14 @@
 package ai.yaps.support.internal.core
 
+import ai.yaps.support.SupportScreen
 import ai.yaps.support.internal.protocol.Message
+import ai.yaps.support.internal.protocol.PaywallWire
+import ai.yaps.support.internal.protocol.ScreenWire
+import ai.yaps.support.internal.protocol.WireJson
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlin.math.min
 import kotlin.random.Random
 
@@ -85,6 +93,54 @@ internal object Ulid {
     fun isValid(value: String): Boolean = value.length == 26 && value.all { it in ALPHABET }
 }
 
+/** PROTOCOL §3.4 `PATCH /v1/sdk/device` bodies for the host's lists and settings. */
+internal object DeviceUpdate {
+    /** `paywalls` and/or `screens`; each one present replaces the device's whole list. */
+    fun lists(paywalls: List<PaywallWire>?, screens: List<ScreenWire>?): JsonObject = buildJsonObject {
+        paywalls?.let { put("paywalls", WireJson.encodeToJsonElement(ListSerializer(PaywallWire.serializer()), it)) }
+        screens?.let { put("screens", WireJson.encodeToJsonElement(ListSerializer(ScreenWire.serializer()), it)) }
+    }
+
+    /** `badgeEnabled`, or `null` when the server already has [desired]. */
+    fun badge(desired: Boolean, synced: Boolean): JsonObject? =
+        if (desired == synced) null else buildJsonObject { put("badgeEnabled", desired) }
+}
+
+/** Decisions shared with iOS and the TypeScript core, kept pure so they can be unit tested. */
+internal object SessionRules {
+    /** `track(name, opensChat = true)` opens the chat only if the server answers within this. */
+    const val TRACK_OPEN_WINDOW_MS = 5_000L
+
+    /**
+     * `identify(userId)` for someone other than the user this device represents starts a new
+     * session, so the previous person's conversation is never relabelled.
+     */
+    fun isUserSwitch(knownUserId: String?, newUserId: String?): Boolean =
+        !knownUserId.isNullOrEmpty() && !newUserId.isNullOrEmpty() && knownUserId != newUserId
+
+    /** The server asked to open the chat, in time, while the app is in the foreground and the chat is closed. */
+    fun shouldOpenChatAfterTrack(opensChat: Boolean, serverSaysOpen: Boolean, elapsedMs: Long, appForeground: Boolean, chatOpen: Boolean): Boolean =
+        opensChat && serverSaysOpen && elapsedMs <= TRACK_OPEN_WINDOW_MS && appForeground && !chatOpen
+}
+
+/** PROTOCOL §3.4 `paywalls`: the ones the host's availability check allows. */
+internal object PaywallRules {
+    /** A check that throws counts as unavailable, as on iOS, React Native and the web. */
+    suspend fun <T> available(paywalls: List<T>, id: (T) -> String, check: (suspend (String) -> Boolean)?): List<T> {
+        if (check == null) return paywalls
+        return paywalls.filter { p ->
+            try {
+                check(id(p))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w("paywallAvailability threw for '${id(p)}'; it counts as unavailable", e)
+                false
+            }
+        }
+    }
+}
+
 /** PROTOCOL §2 validation helpers. */
 internal object Limits {
     const val MESSAGE_TEXT = 4_000
@@ -98,21 +154,49 @@ internal object Limits {
     const val EMAIL = 254
     const val IDENTITY_TOKEN = 4_096
     const val PAYWALLS = 20
+    const val SCREENS = 50
+    const val SCREEN_TITLE = 60
+    const val METADATA_ENTRIES = 30
+    const val METADATA_VALUE = 512
 
     private val keyPattern = Regex("^[A-Za-z0-9_.-]{1,64}$")
 
     fun isValidEventName(name: String): Boolean = keyPattern.matches(name)
     fun isValidMetadataKey(key: String): Boolean = keyPattern.matches(key)
     fun isValidPaywallId(id: String): Boolean = keyPattern.matches(id)
+    fun isValidScreenId(id: String): Boolean = keyPattern.matches(id)
+
+    /** Drops invalid IDs and repeats (the first wins), keeps 50, and cuts titles to 60; a blank title becomes the ID. */
+    fun sanitizeScreens(screens: List<SupportScreen>): List<SupportScreen> {
+        val seen = HashSet<String>()
+        return screens
+            .filter { isValidScreenId(it.id) && seen.add(it.id) }
+            .take(SCREENS)
+            .map { it.copy(title = it.title.trim().ifEmpty { it.id }.take(SCREEN_TITLE)) }
+    }
 
     /** Lengths count UTF-16 code units, which is exactly Kotlin's `String.length`. */
     fun textTooLong(text: String): Boolean = text.trim().length > MESSAGE_TEXT
 
-    fun sanitizeMetadata(metadata: Map<String, String>): Map<String, String> =
-        metadata.entries
-            .filter { isValidMetadataKey(it.key) }
-            .take(30)
-            .associate { it.key to it.value.take(512) }
+    /**
+     * Like iOS and the web: an invalid key or a value over 512 characters drops that entry (never
+     * truncates it), and entries beyond 30 are dropped. Each drop is logged.
+     */
+    fun sanitizeMetadata(metadata: Map<String, String>): Map<String, String> {
+        val out = LinkedHashMap<String, String>()
+        for ((key, value) in metadata) {
+            when {
+                !isValidMetadataKey(key) -> Log.e("setMetadata: a key is invalid (1–64 characters of A–Z, a–z, 0–9, _ . -); it was left out")
+                value.length > METADATA_VALUE -> Log.e("setMetadata: the value for '$key' is over $METADATA_VALUE characters; it was left out")
+                out.size >= METADATA_ENTRIES -> {
+                    Log.e("setMetadata: more than $METADATA_ENTRIES entries; extra keys were left out")
+                    break
+                }
+                else -> out[key] = value
+            }
+        }
+        return out
+    }
 
     val allowedFileExtensions: Set<String> = setOf("pdf", "txt", "zip", "log")
 

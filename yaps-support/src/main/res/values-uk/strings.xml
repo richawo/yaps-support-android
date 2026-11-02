@@ -66,4 +66,7 @@
     <string name="yaps_support_code_expired">Термін дії минув</string>
     <string name="yaps_support_code_expires">Діє до %1$s</string>
     <string name="yaps_support_code_spoken">Код %1$s</string>
+    <string name="yaps_support_card_rating">Оцінка</string>
+    <string name="yaps_support_rating_thanks">Дякуємо за оцінку!</string>
+    <string name="yaps_support_rating_stars">%1$d з 5</string>
 </resources>

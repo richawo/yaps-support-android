@@ -66,4 +66,7 @@
     <string name="yaps_support_code_expired">Срок истёк</string>
     <string name="yaps_support_code_expires">Действует до %1$s</string>
     <string name="yaps_support_code_spoken">Код %1$s</string>
+    <string name="yaps_support_card_rating">Оценка</string>
+    <string name="yaps_support_rating_thanks">Спасибо за оценку!</string>
+    <string name="yaps_support_rating_stars">%1$d из 5</string>
 </resources>

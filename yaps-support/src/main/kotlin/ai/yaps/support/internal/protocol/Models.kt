@@ -72,6 +72,13 @@ internal data class PaywallWire(
     val products: List<PaywallProductWire> = emptyList(),
 )
 
+/** PROTOCOL §3.4 `screens`: a host app screen that link cards can open. */
+@Serializable
+internal data class ScreenWire(
+    val id: String,
+    val title: String,
+)
+
 @Serializable
 internal data class Author(
     val type: String = AuthorType.SYSTEM,
@@ -97,6 +104,15 @@ internal object CardType {
     const val OFFER = "offer"
     const val APP = "app"
     const val CODE = "code"
+    const val LINK = "link"
+    const val RATING = "rating"
+}
+
+/** What a link card's button opens (`card.target`). */
+internal object LinkTarget {
+    const val URL = "url"
+    const val APP_SETTINGS = "app_settings"
+    const val SCREEN = "screen"
 }
 
 /** Where a code card's code can be redeemed (`card.platform`). Plain strings, like every enum-like field. */
@@ -131,8 +147,14 @@ internal data class Card(
     val campaignId: String? = null,
     val platform: String? = null,
     val expiresAt: String? = null,
+    /** Link card: the saved link it came from (absent for one-off links), what it opens, and the host screen. */
+    val linkId: String? = null,
+    val target: String? = null,
+    val screenId: String? = null,
     val available: Boolean = true,
     val openedAt: String? = null,
+    /** Rating card: the customer's score, 1–5, once they've rated. */
+    val rating: Int? = null,
 )
 
 @Serializable
@@ -315,3 +337,20 @@ internal data class TrackRequest(val name: String, val opensChat: Boolean)
 
 @Serializable
 internal data class TrackResponse(val openChat: Boolean = false)
+
+@Serializable
+internal data class ReviewPromptWire(
+    val milestone: Int,
+    val count: Int,
+    val title: String,
+    val body: String,
+    val buttonLabel: String,
+    val url: String,
+    val shown: Boolean = false,
+)
+
+@Serializable
+internal data class ReviewPromptResponse(val prompt: ReviewPromptWire? = null)
+
+@Serializable
+internal data class ReviewPromptActionResponse(val claimed: Boolean? = null)

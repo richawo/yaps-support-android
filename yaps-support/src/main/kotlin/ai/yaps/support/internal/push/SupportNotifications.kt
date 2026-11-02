@@ -55,7 +55,8 @@ internal object SupportNotifications {
     }
 
     @SuppressLint("MissingPermission") // canPost() checks it
-    fun show(context: Context, data: Map<String, String>, smallIcon: Int, accentColor: Int?) {
+    /** [showsCount] is `YapsSupport.updatesAppBadge`: without it the notification carries no number for the launcher badge. */
+    fun show(context: Context, data: Map<String, String>, smallIcon: Int, accentColor: Int?, showsCount: Boolean = true) {
         ensureChannel(context)
         if (!canPost(context)) {
             Log.i("Support push received but notifications are not permitted")
@@ -86,7 +87,7 @@ internal object SupportNotifications {
             .setAutoCancel(true)
             .setGroup(group)
             .setContentIntent(tap)
-            .setNumber(PushRecognizer.badge(data) ?: 0)
+            .setNumber(if (showsCount) PushRecognizer.badge(data) ?: 0 else 0)
             .apply { accentColor?.let(::setColor) }
             .build()
 

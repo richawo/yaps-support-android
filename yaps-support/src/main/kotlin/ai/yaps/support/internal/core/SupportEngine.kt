@@ -1,6 +1,7 @@
 package ai.yaps.support.internal.core
 
 import ai.yaps.support.BuildConfig
+import ai.yaps.support.ReviewPrompt
 import ai.yaps.support.SupportEvent
 import ai.yaps.support.SupportException
 import ai.yaps.support.internal.net.ApiClient
@@ -12,6 +13,7 @@ import ai.yaps.support.internal.outbox.Outbox
 import ai.yaps.support.internal.outbox.OutboxEntry
 import ai.yaps.support.internal.outbox.OutboxWorker
 import ai.yaps.support.internal.outbox.PendingAttachment
+import ai.yaps.support.internal.protocol.CardType
 import ai.yaps.support.internal.protocol.Appearance
 import ai.yaps.support.internal.protocol.DeviceInfo
 import ai.yaps.support.internal.protocol.FrameCodec
@@ -21,6 +23,7 @@ import ai.yaps.support.internal.protocol.MessageKind
 import ai.yaps.support.internal.protocol.PaywallWire
 import ai.yaps.support.internal.protocol.PushInput
 import ai.yaps.support.internal.protocol.RegisterRequest
+import ai.yaps.support.internal.protocol.ScreenWire
 import ai.yaps.support.internal.protocol.SdkConfig
 import ai.yaps.support.internal.protocol.SdkCustomer
 import ai.yaps.support.internal.protocol.SendMessageRequest
@@ -66,7 +69,6 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import okhttp3.OkHttpClient
@@ -82,7 +84,9 @@ internal interface EngineHost {
     fun emit(event: SupportEvent)
     val languageOverride: String?
     val usesRemoteAppearance: Boolean
+    val updatesAppBadge: Boolean
     suspend fun availablePaywalls(): List<PaywallWire>
+    fun screens(): List<ScreenWire>
     fun openChat(context: Context)
 }
 
@@ -144,6 +148,10 @@ internal class SupportEngine(
     private val _availablePaywallIds = MutableStateFlow<Set<String>>(emptySet())
     val availablePaywallIds: StateFlow<Set<String>> = _availablePaywallIds.asStateFlow()
 
+    /** IDs in the host's current `YapsSupport.screens`; link cards to other screens are unavailable. */
+    private val _screenIds = MutableStateFlow<Set<String>>(emptySet())
+    val screenIds: StateFlow<Set<String>> = _screenIds.asStateFlow()
+
     /** Bumps when a close was requested via YapsSupport.closeChat(). */
     private val _closeRequests = MutableStateFlow(0)
     val closeRequests: StateFlow<Int> = _closeRequests.asStateFlow()
@@ -168,7 +176,8 @@ internal class SupportEngine(
     private val visible: Boolean get() = visibleCount > 0
 
     private val registerMutex = Mutex()
-    private val paywallMutex = Mutex()
+    private val listsMutex = Mutex()
+    private val badgeMutex = Mutex()
     private val ackWaiters = ConcurrentHashMap<String, CompletableDeferred<Result<Message>>>()
     private val kick = Channel<Unit>(Channel.CONFLATED)
     private var flushJob: Job? = null
@@ -189,6 +198,7 @@ internal class SupportEngine(
 
     fun start() {
         store.saveEndpoint(appId, baseUrl)
+        _screenIds.value = host.screens().mapTo(HashSet()) { it.id }
         scope.launch { outbox.entries.collect { entries -> _state.update { it.copy(pending = entries) } } }
         scope.launch { cleanOrphanedFiles() }
         watchNetwork()
@@ -198,7 +208,8 @@ internal class SupportEngine(
         scope.launch {
             refreshAppearance()
             if (tokens.get() == null) runCatching { ensureRegistered() } else refreshUnread()
-            syncPaywalls()
+            syncLists()
+            syncBadgePreference()
         }
     }
 
@@ -291,9 +302,13 @@ internal class SupportEngine(
                 }
             }
             tokens.set(response.deviceToken)
+            store.badgeEnabled = true // the server's default for a new registration
             Log.i("Registered device ${response.registrationId}")
             applyCustomer(response.customer, response.config)
-            scope.launch { syncPaywalls() }
+            scope.launch {
+                syncLists()
+                syncBadgePreference()
+            }
             response.deviceToken
         }
     }
@@ -347,6 +362,7 @@ internal class SupportEngine(
     private fun applyCustomer(customer: SdkCustomer, config: SdkConfig) {
         customerVerified = customer.verified
         store.customerVerified = customer.verified
+        store.customerUserId = customer.userId
         store.config = config
         _state.update { it.copy(config = config, restriction = if (disabled) Restriction.DISABLED else restrictionFor(config, customer.verified)) }
         if (config.appearanceEtag != null && config.appearanceEtag != store.appearanceEtag) {
@@ -371,6 +387,17 @@ internal class SupportEngine(
     }
 
     fun identify(input: IdentityInput) {
+        if (SessionRules.isUserSwitch(store.customerUserId ?: identity?.userId, input.userId)) {
+            // Like iOS and the web: the previous user's session ends here, on the server too.
+            Log.i("Switching users; clearing the previous user's local support session")
+            val previous = tokens.get()
+            resetLocal()
+            metadata = null
+            identity = input
+            if (previous != null) scope.launch { runCatching { api.logout(previous) } }
+            scope.launch { runCatching { ensureRegistered() } }
+            return
+        }
         identity = input
         if (input.token != null && _state.value.restriction == Restriction.VERIFICATION_REQUIRED) {
             // Clear the notice optimistically; the server has the final word on the next response.
@@ -415,22 +442,53 @@ internal class SupportEngine(
         }
     }
 
-    fun refreshPaywalls() {
-        scope.launch { syncPaywalls() }
+    fun badgePreferenceChanged() {
+        scope.launch { syncBadgePreference() }
     }
 
-    private suspend fun syncPaywalls() = paywallMutex.withLock {
-        val available = runCatching { host.availablePaywalls() }.getOrDefault(emptyList()).take(20)
-        _availablePaywallIds.value = available.map { it.id }.toSet()
+    /**
+     * PROTOCOL §3.4 `badgeEnabled`: sent when `YapsSupport.updatesAppBadge` differs from what the
+     * server has for this registration, so `false` goes right after register and on every change.
+     */
+    private suspend fun syncBadgePreference() = badgeMutex.withLock {
+        val desired = host.updatesAppBadge
+        val body = DeviceUpdate.badge(desired, synced = store.badgeEnabled) ?: return@withLock
         if (tokens.get() == null || disabled) return@withLock
         try {
-            val response = authed {
-                api.updateDevice(buildJsonObject { put("paywalls", WireJson.encodeToJsonElement(ListSerializer(PaywallWire.serializer()), available)) })
-            }
+            val response = authed { api.updateDevice(body) }
+            store.badgeEnabled = desired
             applyCustomer(response.customer, response.config)
         } catch (e: Exception) {
             if (e is CancellationException) throw e
-            Log.w("Reporting paywalls failed", e)
+            Log.w("Reporting the badge preference failed", e)
+        }
+    }
+
+    fun refreshPaywalls() {
+        scope.launch { syncLists(paywalls = true, screens = false) }
+    }
+
+    fun refreshScreens() {
+        _screenIds.value = host.screens().mapTo(HashSet()) { it.id }
+        scope.launch { syncLists(paywalls = false, screens = true) }
+    }
+
+    /**
+     * PROTOCOL §3.4: `paywalls` and `screens` replace this device's lists. Both go after register
+     * (and on start); each one again whenever the host changes it.
+     */
+    private suspend fun syncLists(paywalls: Boolean = true, screens: Boolean = true) = listsMutex.withLock {
+        val available = if (paywalls) runCatching { host.availablePaywalls() }.getOrDefault(emptyList()).take(20) else null
+        val screenList = if (screens) host.screens() else null
+        available?.let { list -> _availablePaywallIds.value = list.map { it.id }.toSet() }
+        screenList?.let { list -> _screenIds.value = list.map { it.id }.toSet() }
+        if (tokens.get() == null || disabled) return@withLock
+        try {
+            val response = authed { api.updateDevice(DeviceUpdate.lists(available, screenList)) }
+            applyCustomer(response.customer, response.config)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Log.w("Reporting paywalls and screens failed", e)
         }
     }
 
@@ -882,6 +940,15 @@ internal class SupportEngine(
 
     // ------------------------------------------------------------------ cards, events, push
 
+    /** A star on a rating card: shows the score at once and sends it. Tapping again changes it. */
+    fun rateCard(messageId: String, score: Int) {
+        if (score !in 1..5) return
+        val message = _state.value.messages.firstOrNull { it.id == messageId } ?: return
+        val card = message.card?.takeIf { it.type == CardType.RATING } ?: return
+        upsert(listOf(message.copy(card = card.copy(rating = score))), notify = false)
+        scope.launch { runCatching { authed { api.rate(messageId, score) } } }
+    }
+
     /** Fire-and-forget card action receipt: [CardActionName.OPEN] or [CardActionName.COPY]. */
     fun recordCardAction(messageId: String, action: String = CardActionName.OPEN) {
         scope.launch { runCatching { authed { api.action(messageId, action) } } }
@@ -892,6 +959,7 @@ internal class SupportEngine(
             Log.w("track(): invalid event name")
             return
         }
+        val started = System.currentTimeMillis()
         scope.launch {
             try {
                 ensureRegistered()
@@ -901,12 +969,37 @@ internal class SupportEngine(
                     return@launch
                 }
                 val response = authed { api.track(name, opensChat) }
-                if (response.openChat && opensChat) withContext(Dispatchers.Main) { host.openChat(context) }
+                // Like iOS: a late answer would open the chat over whatever the user moved on to.
+                val elapsed = System.currentTimeMillis() - started
+                if (SessionRules.shouldOpenChatAfterTrack(opensChat, response.openChat, elapsed, appForeground, _chatOpen.value)) {
+                    withContext(Dispatchers.Main) { host.openChat(context) }
+                }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 Log.w("track() failed", e)
             }
         }
+    }
+
+    // ------------------------------------------------------------------ review prompt
+
+    suspend fun reviewPrompt(): ReviewPrompt? = try {
+        authed { api.reviewPrompt() }.prompt?.let {
+            ReviewPrompt(it.milestone, it.count, it.title, it.body, it.buttonLabel, it.url, it.shown)
+        }
+    } catch (e: Exception) {
+        if (e is CancellationException) throw e
+        Log.w("reviewPrompt() failed", e)
+        null
+    }
+
+    /** Records a review prompt action; for `shown`, whether this device claimed it. */
+    suspend fun reviewPromptAction(action: String, milestone: Int): Boolean = try {
+        authed { api.reviewPromptAction(action, milestone) }.claimed ?: true
+    } catch (e: Exception) {
+        if (e is CancellationException) throw e
+        Log.w("review prompt $action failed", e)
+        false
     }
 
     /** Returns true when a notification should be shown (the chat is not on screen). */

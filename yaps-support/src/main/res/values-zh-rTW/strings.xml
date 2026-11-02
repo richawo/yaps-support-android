@@ -66,4 +66,7 @@
     <string name="yaps_support_code_expired">已過期</string>
     <string name="yaps_support_code_expires">有效期限至 %1$s</string>
     <string name="yaps_support_code_spoken">代碼 %1$s</string>
+    <string name="yaps_support_card_rating">評分</string>
+    <string name="yaps_support_rating_thanks">感謝你的評分！</string>
+    <string name="yaps_support_rating_stars">%1$d 星（共 5 星）</string>
 </resources>

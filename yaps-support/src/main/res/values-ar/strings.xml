@@ -66,4 +66,7 @@
     <string name="yaps_support_code_expired">منتهي الصلاحية</string>
     <string name="yaps_support_code_expires">صالح حتى %1$s</string>
     <string name="yaps_support_code_spoken">الرمز %1$s</string>
+    <string name="yaps_support_card_rating">التقييم</string>
+    <string name="yaps_support_rating_thanks">شكرًا على تقييمك!</string>
+    <string name="yaps_support_rating_stars">%1$d من 5</string>
 </resources>

@@ -2,6 +2,7 @@ package ai.yaps.support
 
 import ai.yaps.support.internal.core.AppearanceResolver
 import ai.yaps.support.internal.core.Limits
+import ai.yaps.support.internal.core.LinkOpener
 import ai.yaps.support.internal.core.Log
 import ai.yaps.support.internal.core.ReviewLink
 import ai.yaps.support.internal.core.SupportEngine
@@ -27,6 +28,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -128,6 +130,7 @@ private fun EngineChat(engine: SupportEngine, modifier: Modifier, onClose: (() -
 
     val state by engine.state.collectAsStateWithLifecycle()
     val availablePaywalls by engine.availablePaywallIds.collectAsStateWithLifecycle()
+    val screenIds by engine.screenIds.collectAsStateWithLifecycle()
     var draft by rememberSaveable { mutableStateOf(engine.loadDraft()) }
     val staged = rememberSaveable(saver = attachmentListSaver) { mutableStateListOf<PendingAttachment>() }
     var preparing by remember { mutableIntStateOf(0) }
@@ -242,6 +245,10 @@ private fun EngineChat(engine: SupportEngine, modifier: Modifier, onClose: (() -
         onAppPromo = { m -> YapsSupport.cardActions.openAppPromo(m, contextLauncher(context)) },
         onCopyCode = { m -> YapsSupport.cardActions.copyCode(m) { code -> copyToClipboard(context, code) } },
         onRedeemCode = { m -> YapsSupport.cardActions.redeemCode(m, contextLauncher(context)) },
+        screenIds = screenIds,
+        hasScreenHandler = YapsSupport.onScreen != null,
+        onLink = { m -> YapsSupport.cardActions.openLink(m, screenIds, YapsSupport.onScreen != null, linkOpener(context)) },
+        onRate = { m, score -> engine.rateCard(m.id, score) },
     )
 
     // Predictive back for embedded use: the chat shrinks with the gesture and closes on commit.
@@ -332,6 +339,21 @@ private fun contextLauncher(context: Context) = UrlLauncher { url ->
     } catch (_: ActivityNotFoundException) {
         false
     }
+}
+
+/** Link card taps: `ACTION_VIEW` for URLs, this app's page in system settings, or the host's `onScreen`. */
+private fun linkOpener(context: Context) = object : LinkOpener {
+    override fun openUrl(url: String): Boolean = contextLauncher(context).launch(url)
+
+    override fun openAppSettings(): Boolean = try {
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null))
+        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
+    }
+
+    override fun openScreen(screenId: String): Boolean = YapsSupport.openScreen(screenId)
 }
 
 private fun copyToClipboard(context: Context, code: String): Boolean = runCatching {
